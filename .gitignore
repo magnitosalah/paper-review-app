@@ -1,0 +1,15 @@
+**/node_modules/
+**/.next/
+**/.env*
+!**/.env.example
+**/.vercel/
+**/coverage/
+**/*.tsbuildinfo
+**/.DS_Store
+**/test-results/
+**/.local/
+**/.local-data/
+paperdesk/public/pdf/
+paperdesk/public/pdf.worker.min.mjs
+
+.vercel
