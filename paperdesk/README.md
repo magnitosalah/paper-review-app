@@ -88,7 +88,7 @@ Codex는 일반 OpenAI 모델 API 호출과 구분된 실제 실행 계층입니
 5. 확정된 운영 URL을 Google OAuth origin과 API key의 허용 referrer에 등록합니다.
 6. `NEXT_PUBLIC_` 값이 바뀌면 재배포합니다. PC와 폰은 같은 운영 URL을 사용합니다.
 
-앱 재배포와 사용자 기록 저장은 별개입니다. 논문·대화는 본인 Drive에 보관하며, PDF·개인 대화·토큰·API 비밀키는 Git에 올리지 않습니다. 이전 Supabase SQL이나 Supabase 환경변수는 이 저장 방식에서 사용하지 않습니다.
+앱 재배포와 사용자 기록 저장은 별개입니다. 논문·대화는 본인 Drive에 보관하며, PDF·개인 대화·토큰·API 비밀키는 Git에 올리지 않습니다.
 
 ## 검증 범위와 운영 전 확인
 

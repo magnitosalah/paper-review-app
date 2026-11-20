@@ -130,11 +130,15 @@ describe("immutable Drive replica convergence", () => {
     expect(stored.driveFiles).toEqual(["drive-file"]);
   });
 
-  it("prefers a completed answer to a concurrent stale pending copy", () => {
+  it("preserves a recovered completed answer against a higher-revision stale stream", () => {
     const message = { id: "reply", chatId: "chat", role: "assistant", content: "Saved answer", provider: "gemini", model: "configured", createdAt: "2026-11-20T00:00:00Z", status: "complete" };
     const completed = operation("messages:reply", "messages", message, 2, "completed");
-    const stale = { ...operation("messages:reply", "messages", { ...message, content: "", status: "pending" }, 2, "stale"), updatedAt: "2099-01-01T00:00:00Z" };
+    const stale = { ...operation("messages:reply", "messages", { ...message, content: "Partial answer", status: "streaming" }, 10, "stale"), updatedAt: "2099-01-01T00:00:00Z" };
     const stored = mergeReplicaSnapshot(newStoredWorkspace(), [completed, stale]);
     expect(stored.entries["messages:reply"].value).toEqual(message);
+    expect(mergeReplicaSnapshot(newStoredWorkspace(), [stale, completed]).entries).toEqual(stored.entries);
+    const deleted = { ...operation("messages:reply", "messages", message, 3, "delete-answer"), deleted: true };
+    expect(mergeReplicaSnapshot(stored, [deleted]).entries["messages:reply"].deleted).toBe(true);
+    expect(mergeReplicaSnapshot(newStoredWorkspace(), [deleted, stale, completed]).entries["messages:reply"].deleted).toBe(true);
   });
 });

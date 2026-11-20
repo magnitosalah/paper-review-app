@@ -1,5 +1,7 @@
 # Paperdesk
 
+[앱 열기](https://paper-review-app-nine.vercel.app) · [GitHub 검증](https://github.com/magnitosalah/paper-review-app/actions)
+
 논문을 읽고 문장을 보관하며 Codex·Gemini·Claude에 질문하는 반응형 웹앱입니다. 로컬 PDF, Google Drive 파일 선택, 참고문헌 검색과 별도 대화, 개인 서재 동기화를 위한 코드를 포함합니다.
 
 애플리케이션은 [`paperdesk/`](paperdesk/)에 있습니다. Vercel에서 Git 저장소를 연결할 때 **Root Directory를 `paperdesk`**로 지정합니다.

@@ -178,14 +178,16 @@ export function acknowledgeEntry(stored: StoredWorkspace, submitted: PendingEntr
 }
 
 function compareOperations(left: WorkspaceEntry, right: WorkspaceEntry): number {
-  if (left.revision !== right.revision) return left.revision - right.revision;
-  if (left.deleted !== right.deleted) return left.deleted ? 1 : -1;
+  // A server-recovered terminal answer must survive an older streaming device's
+  // larger local revision counter. A new question uses a different message ID.
   if (left.kind === "messages" && right.kind === "messages") {
     const ranks: Record<string, number> = { pending: 0, streaming: 1, failed: 2, interrupted: 3, complete: 4 };
-    const leftRank = ranks[(left.value as { status?: string })?.status ?? ""] ?? 0;
-    const rightRank = ranks[(right.value as { status?: string })?.status ?? ""] ?? 0;
+    const leftRank = left.deleted ? 5 : ranks[(left.value as { status?: string })?.status ?? ""] ?? 0;
+    const rightRank = right.deleted ? 5 : ranks[(right.value as { status?: string })?.status ?? ""] ?? 0;
     if (leftRank !== rightRank) return leftRank - rightRank;
   }
+  if (left.revision !== right.revision) return left.revision - right.revision;
+  if (left.deleted !== right.deleted) return left.deleted ? 1 : -1;
   return left.updatedAt.localeCompare(right.updatedAt) || left.changeId.localeCompare(right.changeId);
 }
 

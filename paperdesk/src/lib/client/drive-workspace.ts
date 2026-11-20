@@ -26,7 +26,10 @@ async function request(session: DriveWorkspaceSession, url: string, init: Reques
   const timeout = AbortSignal.timeout(init.method === "PUT" ? 120_000 : 30_000);
   const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   let response: Response;
-  try { response = await fetch(target, { ...init, signal, redirect: "error", headers: { ...Object.fromEntries(new Headers(init.headers)), Authorization: `Bearer ${session.token}` } }); }
+  // Drive uses 308 without Location for a successfully received nonfinal chunk.
+  // Fetch's error/manual modes hide that response; follow returns the bare 308.
+  const redirect = init.method === "PUT" ? "follow" : "error";
+  try { response = await fetch(target, { ...init, signal, redirect, headers: { ...Object.fromEntries(new Headers(init.headers)), Authorization: `Bearer ${session.token}` } }); }
   catch (error) {
     if (timeout.aborted) throw new DriveError("Drive 응답 시간이 초과되었습니다. 기록은 기기에 남아 있습니다.", "DRIVE_TIMEOUT");
     throw error;

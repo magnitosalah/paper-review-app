@@ -61,6 +61,26 @@ describe("Drive-backed workspace transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("continues an upload larger than 8MB after Drive's nonfinal 308 response", async () => {
+    const chunk = 8 * 1024 * 1024;
+    const blob = new Blob([new Uint8Array(chunk + 1024)], { type: "application/pdf" });
+    const uploadUrl = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=test";
+    fetchMock.mockResolvedValueOnce(json({ files: [] }))
+      .mockResolvedValueOnce(json({ files: [{ id: "chunk-folder" }] }))
+      .mockResolvedValueOnce(new Response(null, { status: 200, headers: { location: uploadUrl } }))
+      .mockImplementationOnce((_url, init) => {
+        // Browser Fetch rejects 308 in redirect:error, and manual hides its status.
+        if (init.redirect !== "follow") throw new TypeError("308 response hidden by redirect mode");
+        return Promise.resolve(new Response(null, { status: 308, headers: { range: `bytes=0-${chunk - 1}` } }));
+      })
+      .mockResolvedValueOnce(json({ id: "uploaded-large-pdf" }));
+    expect(await uploadWorkspacePdf({ ...session, ownerId: "chunk-owner" }, "paper-large", blob, "large.pdf")).toBe("uploaded-large-pdf");
+    const firstChunk = fetchMock.mock.calls[3][1], finalChunk = fetchMock.mock.calls[4][1];
+    expect(new Headers(firstChunk.headers).get("Content-Range")).toBe(`bytes 0-${chunk - 1}/${blob.size}`);
+    expect(new Headers(finalChunk.headers).get("Content-Range")).toBe(`bytes ${chunk}-${blob.size - 1}/${blob.size}`);
+    expect((finalChunk.body as Blob).size).toBe(1024);
+  });
+
   it("rejects an unexpected upload URL without leaking an access token", async () => {
     fetchMock.mockResolvedValueOnce(json({ files: [] }))
       .mockResolvedValueOnce(json({ files: [{ id: "paperdesk-folder" }] }))
