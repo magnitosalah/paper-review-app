@@ -70,4 +70,48 @@ describe("streaming provider protocols", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider-key-secret", {status: 401})));
     await expect(collect(streamClaude("allowed-model", buildProviderInput(request), new AbortController().signal))).rejects.toThrow("인증");
   });
+  it("classifies the Google monthly spending cap using fixed text without exposing upstream details", async () => {
+    const message = "Your project has exceeded its monthly spending cap. provider-key-secret https://untrusted.example/spend";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({error: {status: "RESOURCE_EXHAUSTED", message}}), {status: 429})));
+    await expect(collect(streamGemini("allowed-model", buildProviderInput(request), new AbortController().signal))).rejects.toMatchObject({
+      status: 429,
+      message: "Gemini 프로젝트의 월 지출 한도에 도달했습니다. Google AI Studio에서 프로젝트 한도를 확인해 주세요.",
+    });
+  });
+  it.each([
+    JSON.stringify({error: {status: "RESOURCE_EXHAUSTED", message: "Rate limit exceeded"}}),
+    JSON.stringify({error: {status: "UNKNOWN", message: "monthly spending cap"}}),
+    JSON.stringify({message: "monthly spending cap"}),
+    "monthly spending cap: invalid JSON",
+  ])("keeps generic Gemini 429 guidance for other or malformed errors: %s", async body => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, {status: 429})));
+    await expect(collect(streamGemini("allowed-model", buildProviderInput(request), new AbortController().signal))).rejects.toMatchObject({
+      status: 429, message: "Gemini 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+    });
+  });
+  it("cancels oversized Google error bodies and retains the generic 429 response", async () => {
+    const cancel = vi.fn();
+    let chunks = 0;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        chunks++;
+        controller.enqueue(encoder.encode(chunks === 1
+          ? JSON.stringify({error: {status: "RESOURCE_EXHAUSTED", message: "monthly spending cap"}})
+          : " ".repeat(4096)));
+      }, cancel,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, {status: 429})));
+    await expect(collect(streamGemini("allowed-model", buildProviderInput(request), new AbortController().signal))).rejects.toMatchObject({
+      status: 429, message: "Gemini 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(chunks).toBeLessThanOrEqual(6);
+  });
+  it("does not apply the Google classification to another provider", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({error: {status: "RESOURCE_EXHAUSTED", message: "monthly spending cap"}}), {status: 429})));
+    await expect(collect(streamClaude("allowed-model", buildProviderInput(request), new AbortController().signal))).rejects.toMatchObject({
+      status: 429, message: "Claude 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+    });
+  });
 });

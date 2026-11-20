@@ -30,15 +30,31 @@ export function plainMetadata(value: unknown, limit = 24_000): string {
 }
 
 export function doiFromQuery(query: string): string | null {
-  let value = query.trim().replace(/^doi:\s*/i, "");
-  if (/^https?:\/\//i.test(value)) {
+  const value = query.trim();
+  // Reference-list searches contain the whole citation, not just an isolated DOI.
+  const resolver = value.match(/\bhttps?:\/\/(?:dx\.)?doi\.org\/[^\s<>"“”]+/i);
+  let candidate: string;
+  if (resolver) {
     try {
-      const url = new URL(value);
-      if (!["doi.org", "dx.doi.org"].includes(url.hostname.toLowerCase())) return null;
-      value = decodeURIComponent(url.pathname.slice(1));
+      candidate = decodeURIComponent(new URL(resolver[0]).pathname.slice(1));
     } catch { return null; }
+  } else {
+    // Arbitrary URLs are never lookup targets. Bare DOIs can occur after author/title text.
+    if (/^https?:\/\//i.test(value)) return null;
+    const match = value.match(/(?:^|[\s([{;,:])(?:doi:\s*)?(10\.\d{4,9}\/[^\s<>"“”]+)/i);
+    if (!match) return null;
+    candidate = match[1];
   }
-  return /^10\.\d{4,9}\/\S{1,240}$/i.test(value) ? value.toLowerCase() : null;
+  // Remove citation punctuation while retaining balanced parentheses used by valid DOIs.
+  for (;;) {
+    const previous = candidate;
+    candidate = candidate.replace(/[.,;:'’”]+$/, "");
+    for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
+      if (candidate.endsWith(close) && candidate.split(close).length > candidate.split(open).length) candidate = candidate.slice(0, -1);
+    }
+    if (candidate === previous) break;
+  }
+  return /^10\.\d{4,9}\/\S{1,240}$/i.test(candidate) ? candidate.toLowerCase() : null;
 }
 
 export function normalizeCrossref(item: unknown): ReferenceCandidate | null {
@@ -118,16 +134,18 @@ export async function searchReferences(query: string, signal?: AbortSignal): Pro
   const url = doi ? new URL(`https://api.crossref.org/works/${encodeURIComponent(doi)}`) : new URL("https://api.crossref.org/works");
   if (!doi) { url.searchParams.set("query.bibliographic", query); url.searchParams.set("rows", "6"); }
   const data = await fetchMetadata(url, signal);
-  if (!data) {
-    if (!doi) return [];
+  if (doi) {
+    const crossref = data ? normalizeCrossref(data.message) : null;
+    if (crossref?.doi === doi) return [crossref];
     // arXiv and many repositories register DOIs with DataCite, not Crossref.
     // Only the fixed registry endpoint is fetched; no publisher/result URL is followed.
     const dataCite = await fetchMetadata(new URL(`https://api.datacite.org/dois/${encodeURIComponent(doi)}`), signal);
     const candidate = dataCite ? normalizeDataCite(dataCite.data) : null;
     return candidate?.doi === doi ? [candidate] : [];
   }
+  if (!data) return [];
   const message = data.message as {items?: unknown[]} | undefined;
-  const items = doi ? [data.message] : Array.isArray(message?.items) ? message.items : [];
+  const items = Array.isArray(message?.items) ? message.items : [];
   const unique = new Map<string, ReferenceCandidate>();
   for (const item of items) { const candidate = normalizeCrossref(item); if (candidate) unique.set(candidate.id, candidate); }
   return [...unique.values()].slice(0, 6);

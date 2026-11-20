@@ -142,12 +142,34 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
+async function isGeminiMonthlySpendCap(response: Response): Promise<boolean> {
+  if (!response.body) return false;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0; let text = "";
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 16_384) return false;
+      text += decoder.decode(value, {stream: true});
+    }
+    text += decoder.decode();
+    const result = z.object({error: z.object({status: z.literal("RESOURCE_EXHAUSTED"), message: z.string()})}).safeParse(JSON.parse(text));
+    return result.success && /\bmonthly spending cap\b/i.test(result.data.error.message);
+  } catch { return false; }
+  finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+
 async function checkedFetch(url: string, init: RequestInit, name: string): Promise<Response> {
   const response = await fetch(url, {...init, redirect: "error", cache: "no-store"});
   if (!response.ok) {
-    // Never reflect provider response bodies: they may contain credentials or document excerpts.
+    // Classify only this known Google error; never reflect upstream text or links.
+    const monthlySpendCap = response.status === 429 && name === "Gemini" && await isGeminiMonthlySpendCap(response);
     await response.body?.cancel().catch(() => {});
     if ([401, 403].includes(response.status)) throw new ProviderError(`${name} 인증 또는 모델 접근 권한을 확인해 주세요.`, 503);
+    if (monthlySpendCap) throw new ProviderError("Gemini 프로젝트의 월 지출 한도에 도달했습니다. Google AI Studio에서 프로젝트 한도를 확인해 주세요.", 429);
     if (response.status === 429) throw new ProviderError(`${name} 사용 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.`, 429);
     throw new ProviderError(`${name} 요청에 실패했습니다 (HTTP ${response.status}).`);
   }
